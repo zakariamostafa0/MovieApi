@@ -9,6 +9,8 @@ namespace MoviesApi.Helpers
             CreateMap<Movie, MovieDetailsDto>();
             CreateMap<MovieDto, Movie>()
                 .ForMember(src => src.Poster, opt => opt.Ignore());
+
+            CreateMap<RegisterModelDto, ApplicationUser>();
         }
     }
 }
