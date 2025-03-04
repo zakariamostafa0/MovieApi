@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MoviesApi.Services.Abstract;
 
-namespace MoviesApi.Services
+namespace MoviesApi.Repository.Implementaion
 {
     public class GenresService : IGenresService
     {

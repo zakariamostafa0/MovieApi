@@ -1,16 +1,17 @@
 ﻿
 using AutoMapper;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.CodeAnalysis.Options;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion.Internal;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using MoviesApi.Helpers;
+using MoviesApi.Services.Abstract;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
-namespace MoviesApi.Services
+namespace MoviesApi.Repository.Implementaion
 {
     public class AuthService : IAuthService
     {
@@ -19,9 +20,9 @@ namespace MoviesApi.Services
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly JWT _jwt;
         public AuthService(UserManager<ApplicationUser> userManager
-                          ,IMapper mapper
-                          ,RoleManager<IdentityRole> roleManager
-                          ,IOptions<JWT> jwt)
+                          , IMapper mapper
+                          , RoleManager<IdentityRole> roleManager
+                          , IOptions<JWT> jwt)
         {
             _userManager = userManager;
             _mapper = mapper;
@@ -39,8 +40,8 @@ namespace MoviesApi.Services
 
             var user = _mapper.Map<ApplicationUser>(model);
 
-            var result = await _userManager.CreateAsync(user,model.Password);
-            if (!result.Succeeded) 
+            var result = await _userManager.CreateAsync(user, model.Password);
+            if (!result.Succeeded)
             {
                 var errors = string.Empty;
                 foreach (var error in result.Errors)
@@ -54,7 +55,7 @@ namespace MoviesApi.Services
             return new AuthModel
             {
                 Email = user.Email,
-                ExpiresOn = jwtSecurityToken.ValidTo,
+                //ExpiresOn = jwtSecurityToken.ValidTo,
                 IsAuthenticated = true,
                 Roles = new List<string> { "User" },
                 Token = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken),
@@ -62,6 +63,7 @@ namespace MoviesApi.Services
             };
         }
 
+        //login
         public async Task<AuthModel> GetTokenAsync(TokenRequestModelDto model)
         {
             var authModel = new AuthModel();
@@ -81,12 +83,26 @@ namespace MoviesApi.Services
             authModel.Token = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
             authModel.Email = user.Email;
             authModel.Username = user.UserName;
-            authModel.ExpiresOn = jwtSecurityToken.ValidTo;
+            //authModel.ExpiresOn = jwtSecurityToken.ValidTo.ToLocalTime();
             authModel.Roles = rolesList.ToList();
+
+            if (user.RefreshTokens.Any(t => t.IsActive))
+            {
+                var activeRefreshToken = user.RefreshTokens.FirstOrDefault(t => t.IsActive);
+                authModel.RefreshToken = activeRefreshToken.Token;
+                authModel.RefreshTokenExpireation = activeRefreshToken.ExpiresOn;
+            }
+            else
+            {
+                var refreshToken = GenerateRefreshToken();
+                authModel.RefreshToken = refreshToken.Token;
+                authModel.RefreshTokenExpireation = refreshToken.ExpiresOn;
+                user.RefreshTokens.Add(refreshToken);
+                await _userManager.UpdateAsync(user);
+            }
 
             return authModel;
         }
-      
 
         private async Task<JwtSecurityToken> CreateJwtToken(ApplicationUser user)
         {
@@ -114,11 +130,75 @@ namespace MoviesApi.Services
                 issuer: _jwt.Issuer,
                 audience: _jwt.Audience,
                 claims: claims,
-                expires: DateTime.Now.AddDays(_jwt.DurationInDays),
+                expires: DateTime.UtcNow.AddMinutes(_jwt.DurationInDays),
                 signingCredentials: signingCredentials);
 
             return jwtSecurityToken;
         }
+
+        public async Task<AuthModel> RefreshTokenAsync(string token)
+        {
+            var authModel = new AuthModel();
+
+            var user = await _userManager.Users.SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token));
+            if (user == null)
+            {
+                //authModel.IsAuthenticated = false;
+                authModel.Message = "Invalid Token";
+                return authModel;
+            }
+
+            var refreshToken = user.RefreshTokens.Single(t => t.Token == token);
+
+            if (!refreshToken.IsActive)
+            {
+                //authModel.IsAuthenticated = false;
+                authModel.Message = "Inactive Token";
+                return authModel;
+            }
+
+            //Need To
+            //1- revoke the refresh token 
+            refreshToken.RevokedOn = DateTime.UtcNow;
+
+            //2- generate new refresh token 
+            var newRefreshToken = GenerateRefreshToken();  //<===============
+            user.RefreshTokens.Add(newRefreshToken);
+            await _userManager.UpdateAsync(user);
+
+            //3- generate JWT token for my response
+            var JwwtToken = await CreateJwtToken(user);    //<===============
+            authModel.IsAuthenticated = true;
+            authModel.Token = new JwtSecurityTokenHandler().WriteToken(JwwtToken);
+            authModel.Email = user.Email;
+            authModel.Username = user.UserName;
+            var roles = await _userManager.GetRolesAsync(user);
+            authModel.Roles = roles.ToList();
+            authModel.RefreshToken = newRefreshToken.Token;
+            authModel.RefreshTokenExpireation = newRefreshToken.ExpiresOn;
+
+            return authModel;
+        }
+
+        public async Task<bool> RevokeTokenAsync(string token)
+        {
+            var user = await _userManager.Users.SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token));
+
+            if (user == null)
+                return false;
+
+            var refreshToken = user.RefreshTokens.Single(t => t.Token == token);
+
+            if (!refreshToken.IsActive)
+                return false;
+
+            refreshToken.RevokedOn = DateTime.UtcNow;
+
+            await _userManager.UpdateAsync(user);
+
+            return true;
+        }
+
 
         public async Task<string> AddRoleAsync(AddRoleModelDto model)
         {
@@ -134,5 +214,19 @@ namespace MoviesApi.Services
 
             return result.Succeeded ? string.Empty : "Sonething went wrong";
         }
+
+        private RefreshToken GenerateRefreshToken()
+        {
+            var randomNumber = new byte[32];
+            using var generator = new RNGCryptoServiceProvider();
+            generator.GetBytes(randomNumber);
+            return new RefreshToken
+            {
+                Token = Convert.ToBase64String(randomNumber),
+                ExpiresOn = DateTime.UtcNow.AddDays(10),
+                CreatedOn = DateTime.UtcNow,
+            };
+        }
+
     }
 }

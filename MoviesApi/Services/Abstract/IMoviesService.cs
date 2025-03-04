@@ -1,4 +1,4 @@
-﻿namespace MoviesApi.Services
+﻿namespace MoviesApi.Services.Abstract
 {
     public interface IMoviesService
     {

@@ -11,5 +11,6 @@ namespace MoviesApi.Models
         [MaxLength(50)]
         public string LasName { get; set; }
         public string? Address { get; set; }
+        public List<RefreshToken>? RefreshTokens { get; set; }
     }
 }

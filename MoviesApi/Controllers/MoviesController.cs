@@ -1,8 +1,6 @@
 ﻿using AutoMapper;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using MoviesApi.Services;
+using MoviesApi.Services.Abstract;
 
 namespace MoviesApi.Controllers
 {
@@ -39,7 +37,7 @@ namespace MoviesApi.Controllers
         {
             var movie = await _moviesService.GetById(id);
 
-            if(movie == null)
+            if (movie == null)
                 return NotFound();
 
             var dto = _mapper.Map<MovieDetailsDto>(movie);
@@ -65,12 +63,12 @@ namespace MoviesApi.Controllers
             if (!_allowedExtenstions.Contains(Path.GetExtension(dto.Poster.FileName).ToLower()))
                 return BadRequest("Only .png and .jpg images are allowed!");
 
-            if(dto.Poster.Length > _maxAllowedPosterSize)
+            if (dto.Poster.Length > _maxAllowedPosterSize)
                 return BadRequest("Max allowed size for poster is 1MB!");
 
             var isValidGenre = await _genresService.IsvalidGenre(dto.GenreId);
 
-            if(!isValidGenre)
+            if (!isValidGenre)
                 return BadRequest("Invalid genere ID!");
 
             using var dataStream = new MemoryStream();
@@ -98,7 +96,7 @@ namespace MoviesApi.Controllers
             if (!isValidGenre)
                 return BadRequest("Invalid genere ID!");
 
-            if(dto.Poster != null)
+            if (dto.Poster != null)
             {
                 if (!_allowedExtenstions.Contains(Path.GetExtension(dto.Poster.FileName).ToLower()))
                     return BadRequest("Only .png and .jpg images are allowed!");
